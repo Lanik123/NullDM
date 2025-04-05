@@ -1,0 +1,28 @@
+[package]
+name = "nulldm"
+authors = ["Daniil Titov <public.lanik@gmail.com>"]
+description = "A simple display manager"
+version = "0.1.0"
+edition = "2024"
+
+readme = "README.md"
+license = "MIT"
+
+[dependencies]
+# Unix libs
+nix = { version = "0.29", features = ["process", "user", "term", "fs"] }
+pam = "0.7"
+
+# Logging
+env_logger = { version = "0.11.8", default-features = false, features = ["humantime"] }
+log = "0.4"
+
+# Configuration file parsing
+toml = "0.8.20"
+serde = { version = "1.0", features = ["derive"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "z"
+strip = "symbols"
