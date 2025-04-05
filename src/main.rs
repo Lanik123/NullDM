@@ -63,4 +63,6 @@ fn main() {
             error!("Maximum number of attempts reached. Exiting.");
         }
     }
+
+    std::process::exit(0);
 }
