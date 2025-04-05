@@ -7,6 +7,7 @@ pub struct Config {
     pub default_shell: String,
     pub min_uid: u32,
     pub tty: u8,
+    pub max_attempts: u8,
 }
 
 impl Default for Config {
@@ -15,6 +16,7 @@ impl Default for Config {
             min_uid: 1000,
             default_shell: "/bin/bash".to_string(),
             tty: 2,
+            max_attempts: 3,
         }
     }
 }

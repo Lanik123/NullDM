@@ -15,11 +15,11 @@ fn main() {
         error!("Failed to switch tty {}. Reason: {err}", config.tty);
     });
 
-    loop {
+    for attempt in 1..=config.max_attempts {
         let username = match tty::print::prompt_username("Login: ") {
             Ok(u) if !u.trim().is_empty() => u.trim().to_string(),
             _ => {
-                error!("Empty username input");
+                error!("[Attempt {attempt}] Empty username input");
                 continue;
             }
         };
@@ -27,39 +27,40 @@ fn main() {
         let password = match tty::print::prompt_password("Password: ") {
             Ok(p) if !p.trim().is_empty() => p,
             _ => {
-                error!("Empty password input");
+                error!("[Attempt {attempt}] Empty password input");
                 continue;
             }
         };
 
         let user = match User::from_name(&username) {
             Ok(Some(u)) => u,
-            Ok(None) => {
-                error!("Unknown user: {}", username);
+            _ => {
+                error!("[Attempt {attempt}] Unknown user: {username}");
                 continue;
             }
-            Err(_) => {
-                error!("Unknown user: {}", username);
-                continue;
-            },
         };
 
         // User check
         if user.uid.as_raw() < config.min_uid {
-            error!("User '{}' is below min_uid threshold", username);
+            error!("[Attempt {attempt}] User '{}' is below min_uid threshold", username);
             continue;
         }
 
         // Auth
         match auth::authenticate(&username, &password) {
-            Ok(_) => {
+            Ok(session) => {
                 info!("Login successful for {}", username);
                 session::start_shell(&username, &config.default_shell);
+                drop(session);
                 break;
             }
             Err(e) => {
-                error!("Login failed for {}: {:?}", username, e);
+                error!("[Attempt {attempt}] Login failed for {}: {e:?}", username);
             }
+        }
+
+        if attempt == config.max_attempts {
+            error!("Maximum number of attempts reached. Exiting.");
         }
     }
 }
