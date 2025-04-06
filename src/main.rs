@@ -5,7 +5,7 @@ mod session;
 mod tty;
 
 use log::{info, error};
-use nix::unistd::User;
+use session::SessionHandler;
 
 fn main() {
     logger::setup_logger("/var/log/nulldm.log");
@@ -15,52 +15,25 @@ fn main() {
         error!("Failed to switch tty {}. Reason: {err}", config.tty);
     });
 
-    for attempt in 1..=config.max_attempts {
-        let username = match tty::print::prompt_username("Login: ") {
-            Ok(u) if !u.trim().is_empty() => u.trim().to_string(),
-            _ => {
-                error!("[Attempt {attempt}] Empty username input");
-                continue;
+    match auth::handle_login(&config) {
+        Ok((username, auth_session)) => {
+            info!("Login successful for {}", username);
+            let mut session = SessionHandler::new(&username, &config.default_shell);
+            if let Err(e) = session.spawn() {
+                error!("Failed to spawn session: {e}");
+                std::process::exit(0);
             }
-        };
 
-        let password = match tty::print::prompt_password("Password: ") {
-            Ok(p) if !p.trim().is_empty() => p,
-            _ => {
-                error!("[Attempt {attempt}] Empty password input");
-                continue;
+            let utmpx = auth::add_utmpx_entry(&username, config.tty, session.pid.unwrap().as_raw());
+            // Wait when session die
+            if let Some(status) = session.wait() {
+                info!("Session exited with status: {:?}", status);
             }
-        };
-
-        let user = match User::from_name(&username) {
-            Ok(Some(u)) => u,
-            _ => {
-                error!("[Attempt {attempt}] Unknown user: {username}");
-                continue;
-            }
-        };
-
-        // User check
-        if user.uid.as_raw() < config.min_uid {
-            error!("[Attempt {attempt}] User '{}' is below min_uid threshold", username);
-            continue;
+            auth::drop_utmpx_entry(utmpx);
+            drop(auth_session);
         }
-
-        // Auth
-        match auth::authenticate(&username, &password) {
-            Ok(session) => {
-                info!("Login successful for {}", username);
-                session::start_shell(&username, &config.default_shell);
-                drop(session);
-                break;
-            }
-            Err(e) => {
-                error!("[Attempt {attempt}] Login failed for {}: {e:?}", username);
-            }
-        }
-
-        if attempt == config.max_attempts {
-            error!("Maximum number of attempts reached. Exiting.");
+        Err(e) => {
+            error!("Login failed: {e}");
         }
     }
 

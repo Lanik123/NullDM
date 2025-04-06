@@ -1,41 +1,60 @@
 use log::error;
-use nix::{sys::wait::waitpid, unistd::{execvp, fork, setsid, setuid, ForkResult, Uid, User}};
+use nix::{sys::wait::{waitpid, WaitStatus}, unistd::{execvp, fork, setsid, setuid, ForkResult, Pid, User}};
 use std::ffi::CString;
 
-pub fn start_shell(username: &str, shell: &str) {
-    let user = match User::from_name(username) {
-        Ok(Some(u)) => u,
-        _ => {
-            error!("User '{}' not found", username);
-            return;
-        }
-    };
+pub struct SessionHandler {
+    pub username: String,
+    pub shell: String,
+    pub pid: Option<Pid>,
+}
 
-    match unsafe { fork() } {
-        Ok(ForkResult::Child) => {
-            // Create new session
-            if let Err(err) = setsid() {
-                error!("setsid failed: {err}");
-                std::process::exit(1);
+impl SessionHandler {
+    pub fn new(username: &str, shell: &str) -> Self {
+        Self {
+            username: username.to_string(),
+            shell: shell.to_string(),
+            pid: None,
+        }
+    }
+
+    pub fn spawn(&mut self) -> Result<(), String> {
+        let user = match User::from_name(&self.username) {
+            Ok(Some(u)) => u,
+            _ => {
+                return Err(format!("User '{}' not found", self.username));
+            }
+        };
+    
+        match unsafe { fork() } {
+            Ok(ForkResult::Child) => {
+                // Create new session
+                if let Err(err) = setsid() {
+                    error!("setsid failed: {err}");
+                    std::process::exit(1);
+                }
+    
+                // Change UID
+                if let Err(err) = setuid(user.uid) {
+                    error!("setuid failed: {err}");
+                    std::process::exit(1);
+                }
+    
+                let shell_c = CString::new(self.shell.clone()).unwrap();
+                let _ = execvp(&shell_c, &[shell_c.clone()]);
+                Ok(())
             }
 
-            // Change UID
-            if let Err(err) = setuid(user.uid) {
-                error!("setuid failed: {err}");
-                std::process::exit(1);
+            Ok(ForkResult::Parent { child }) => {
+                // Wait when process die
+                self.pid = Some(child);
+                Ok(())
             }
-
-            let shell_c = CString::new(shell).unwrap();
-            let _ = execvp(&shell_c, &[shell_c.clone()]);
+    
+            Err(e) => Err(format!("fork failed: {}", e)),
         }
+    }
 
-        Ok(ForkResult::Parent { child }) => {
-            // Wait when process die
-            let _ = waitpid(child, None);
-        }
-
-        Err(e) => {
-            error!("Fork failed: {e}");
-        }
+    pub fn wait(&self) -> Option<WaitStatus> {
+        self.pid.and_then(|pid| waitpid(pid, None).ok())
     }
 }
