@@ -5,9 +5,16 @@ mod session;
 mod tty;
 
 use log::{info, error};
+use nix::unistd::getuid;
 use session::SessionHandler;
 
 fn main() {
+    if getuid().as_raw() != 0 {
+        eprintln!("Only start from root is allowed!");
+        error!("Non-privileged run detected.");
+        std::process::exit(1);
+    }
+
     logger::setup_logger("/var/log/nulldm.log");
     let config = config::setup_config("/etc/nulldm/config.toml");
 
