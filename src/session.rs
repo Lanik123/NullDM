@@ -1,5 +1,5 @@
 use log::error;
-use nix::{sys::wait::{waitpid, WaitStatus}, unistd::{execvp, fork, setsid, setuid, ForkResult, Pid, User}};
+use nix::{sys::wait::{waitpid, WaitStatus}, unistd::{execvp, fork, getgrouplist, setgid, setgroups, setuid, ForkResult, Pid, User}};
 use std::ffi::CString;
 
 pub struct SessionHandler {
@@ -27,9 +27,15 @@ impl SessionHandler {
     
         match unsafe { fork() } {
             Ok(ForkResult::Child) => {
-                // Create new session
-                if let Err(err) = setsid() {
-                    error!("setsid failed: {err}");
+                // Change groups
+                if let Err(err) = setgroups(&getgrouplist(CString::new(user.name).unwrap().as_c_str(), user.gid).unwrap()) {
+                    error!("setgroups failed: {err}");
+                    std::process::exit(1);
+                }
+
+                // Change GID
+                if let Err(err) = setgid(user.gid) {
+                    error!("setgid failed: {err}");
                     std::process::exit(1);
                 }
     
